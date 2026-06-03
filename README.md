@@ -17,7 +17,7 @@ venv\\Scripts\\activate
 pip install -r requirements.txt
 ```
 
-Uso:
+Uso :
 
 ```bash
 python app.py
