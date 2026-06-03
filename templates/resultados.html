@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resultados - Comparador</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-row">
+      <a href="/" class="btn-back">⬅ Volver</a>
+      <h1>Resultados de Comparación</h1>
+      <button onclick="generarPDF()" class="btn-pdf">📥 PDF</button>
+    </div>
+  </header>
+
+  {% if error %}
+  <div class="error-card">
+    <p>{{ error }}</p>
+    <a href="/" class="btn-back">⬅ Volver e intentar de nuevo</a>
+  </div>
+  {% else %}
+
+  <div class="cards">
+    <div class="stat-card stat-green">
+      <span class="stat-num">{{ resumen.coincidencias }}</span>
+      <span class="stat-label">✓ Coincidencias</span>
+    </div>
+    <div class="stat-card stat-yellow">
+      <span class="stat-num">{{ resumen.discrepancias_cantidad }}</span>
+      <span class="stat-label">⚠ Discrepancias</span>
+    </div>
+    <div class="stat-card stat-red">
+      <span class="stat-num">{{ resumen.faltantes_en_ingresos }}</span>
+      <span class="stat-label">❌ Falt. Ingresos</span>
+    </div>
+    <div class="stat-card stat-red">
+      <span class="stat-num">{{ resumen.faltantes_en_recepcion }}</span>
+      <span class="stat-label">❌ Falt. Recepción</span>
+    </div>
+  </div>
+
+  <div class="info-row">
+    <span>📦 Recepción: {{ resumen.total_recepcion }} productos</span>
+    <span>📦 Ingresos: {{ resumen.total_ingresos }} productos</span>
+    <span>⚙ Umbral: {{ threshold }}%</span>
+  </div>
+
+  <!-- Sección para agregar equivalencias desde resultados -->
+  <div class="card" id="eq-card">
+    <div class="eq-card-header" onclick="toggleEqSection()">
+      <span>📖 Agregar equivalencias</span>
+      <span id="eq-toggle-icon">▼</span>
+    </div>
+    <div id="eq-section" style="display:none">
+      <p class="help-text">Agrega nuevas equivalencias para mejorar el matching. Se guardan en tu navegador.</p>
+      <div class="form-eq">
+        <input type="text" id="result-eq-rec" placeholder="Nombre en Recepción" class="input-eq">
+        <input type="text" id="result-eq-ing" placeholder="Nombre en Ingresos (técnico)" class="input-eq">
+        <button type="button" onclick="agregarEqResultados()" class="btn-add">➕ Agregar</button>
+      </div>
+      <div id="result-eq-msg" class="eq-msg"></div>
+    </div>
+  </div>
+
+  <!-- Formularios ocultos -->
+  <form id="pdf-form" action="/descargar/pdf" method="POST" style="display:none">
+    <input type="hidden" name="session_id" value="{{ session_id }}">
+    <input type="hidden" name="observaciones" id="pdf-obs">
+    <input type="hidden" name="equivalencias_usuario" id="pdf-eq">
+  </form>
+
+  <form id="recomp-form" action="/recomparar" method="POST" style="display:none">
+    <input type="hidden" name="session_id" value="{{ session_id }}">
+    <input type="hidden" name="threshold" id="recomp-threshold" value="{{ threshold }}">
+    <input type="hidden" name="equivalencias_usuario" id="recomp-eq">
+  </form>
+
+  <div class="tabs">
+    {% if coincidencias %}
+    <button class="tab active" onclick="showTab('tab-coincidencias', this)">✓ Coincidencias ({{ coincidencias|length }})</button>
+    {% endif %}
+    {% if discrepancias %}
+    <button class="tab" onclick="showTab('tab-discrepancias', this)">⚠ Discrepancias ({{ discrepancias|length }})</button>
+    {% endif %}
+    {% if faltantes_ingresos %}
+    <button class="tab" onclick="showTab('tab-faltantes-ing', this)">❌ Falt. Ingresos ({{ faltantes_ingresos|length }})</button>
+    {% endif %}
+    {% if faltantes_recepcion %}
+    <button class="tab" onclick="showTab('tab-faltantes-rec', this)">❌ Falt. Recepción ({{ faltantes_recepcion|length }})</button>
+    {% endif %}
+    {% if sugerencias %}
+    <button class="tab" onclick="showTab('tab-sugerencias', this)">💡 Sugerencias ({{ sugerencias|length }})</button>
+    {% endif %}
+  </div>
+
+  <div id="tab-coincidencias" class="tab-content active">
+    {% if coincidencias %}
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Medicamento Recepción</th>
+            <th>Medicamento Ingresos</th>
+            <th>Cantidad</th>
+            <th>Similitud</th>
+            <th>Método</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in coincidencias %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td class="eq-rec" data-tooltip="Click → campo Recepción">{{ item.medicamento_recepcion }}</td>
+            <td class="eq-ing" data-tooltip="Click → campo Ingresos">{{ item.medicamento_ingresos }}</td>
+            <td class="num-cell">{{ item.cantidad }}</td>
+            <td>{{ item.similitud }}%</td>
+            <td><span class="badge {{ 'badge-eq' if 'equivalencia' in item.metodo else 'badge-fuzzy' }}">{{ item.metodo }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button onclick="exportarExcel('coincidencias', {{ coincidencias|tojson }})" class="btn-export">📊 Exportar a Excel</button>
+    {% else %}
+    <p class="empty">No hay coincidencias para mostrar</p>
+    {% endif %}
+  </div>
+
+  <div id="tab-discrepancias" class="tab-content">
+    {% if discrepancias %}
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Medicamento Recepción</th>
+            <th>Medicamento Ingresos</th>
+            <th>Cant. Rec</th>
+            <th>Cant. Ing</th>
+            <th>Diferencia</th>
+            <th>Similitud</th>
+            <th>Método</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in discrepancias %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td class="eq-rec" data-tooltip="Click → campo Recepción">{{ item.medicamento_recepcion }}</td>
+            <td class="eq-ing" data-tooltip="Click → campo Ingresos">{{ item.medicamento_ingresos }}</td>
+            <td class="num-cell">{{ item.cantidad_recepcion }}</td>
+            <td class="num-cell">{{ item.cantidad_ingresos }}</td>
+            <td class="num-cell diff {{ 'diff-neg' if item.diferencia < 0 else 'diff-pos' }}">{{ "%+d"|format(item.diferencia) }}</td>
+            <td>{{ item.similitud }}%</td>
+            <td><span class="badge {{ 'badge-eq' if 'equivalencia' in item.metodo else 'badge-fuzzy' }}">{{ item.metodo }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button onclick="exportarExcel('discrepancias', {{ discrepancias|tojson }})" class="btn-export">📊 Exportar a Excel</button>
+    {% else %}
+    <p class="empty">No hay discrepancias para mostrar</p>
+    {% endif %}
+  </div>
+
+  <div id="tab-faltantes-ing" class="tab-content">
+    {% if faltantes_ingresos %}
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Medicamento</th>
+            <th>Cantidad</th>
+            <th>Ubicación</th>
+            <th>Medicamento Origen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in faltantes_ingresos %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td class="eq-rec" data-tooltip="Click → campo Recepción">{{ item.medicamento }}</td>
+            <td class="num-cell">{{ item.cantidad }}</td>
+            <td>{{ item.ubicacion }}</td>
+            <td>{{ item.medicamento_origen or '' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button onclick="exportarExcel('faltantes_ingresos', {{ faltantes_ingresos|tojson }})" class="btn-export">📊 Exportar a Excel</button>
+    {% else %}
+    <p class="empty">No hay faltantes en ingresos</p>
+    {% endif %}
+  </div>
+
+  <div id="tab-faltantes-rec" class="tab-content">
+    {% if faltantes_recepcion %}
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Medicamento</th>
+            <th>Cantidad</th>
+            <th>Ubicación</th>
+            <th>Medicamento Origen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in faltantes_recepcion %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td class="eq-ing" data-tooltip="Click → campo Ingresos">{{ item.medicamento }}</td>
+            <td class="num-cell">{{ item.cantidad }}</td>
+            <td>{{ item.ubicacion }}</td>
+            <td>{{ item.medicamento_origen or '' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button onclick="exportarExcel('faltantes_recepcion', {{ faltantes_recepcion|tojson }})" class="btn-export">📊 Exportar a Excel</button>
+    {% else %}
+    <p class="empty">No hay faltantes en recepción</p>
+    {% endif %}
+  </div>
+
+  <div id="tab-sugerencias" class="tab-content">
+    {% if sugerencias %}
+    <p class="help-text" style="padding:0 4px 10px 4px">
+      Si alguna sugerencia es correcta, haz clic en ➕ para agregarla como equivalencia y luego presiona "🔄 Re-comparar".
+    </p>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Medicamento Recepción</th>
+            <th>Sugerencia en Ingresos</th>
+            <th>Similitud</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in sugerencias %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td class="eq-rec" data-tooltip="Click → campo Recepción">{{ item.medicamento_recepcion }}</td>
+            <td class="eq-ing" data-tooltip="Click → campo Ingresos">{{ item.medicamento_ingresos }}</td>
+            <td>{{ item.similitud }}%</td>
+            <td>
+              <button class="btn-sm btn-vincular"
+                      onclick="vincularSugerencia('{{ item.medicamento_recepcion|e }}', '{{ item.medicamento_ingresos|e }}', this)"
+                      title="Agregar como equivalencia">➕</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button onclick="exportarExcel('sugerencias', {{ sugerencias|tojson }})" class="btn-export">📊 Exportar a Excel</button>
+    {% else %}
+    <p class="empty">No hay sugerencias para mostrar</p>
+    {% endif %}
+  </div>
+
+  <!-- Botón re-comparar -->
+  {% if not error %}
+  <div class="recomp-bar">
+    <button onclick="recomparar()" class="btn-recomp">🔄 Re-comparar con nuevas equivalencias</button>
+  </div>
+  {% endif %}
+
+  {% endif %}
+
+  <footer class="footer">
+    <p>Comparador de Medicamentos v2.0 — Web App</p>
+  </footer>
+
+  <script>
+    function showTab(tabId, btn) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      if (btn) btn.classList.add('active');
+    }
+
+    function exportarExcel(tipo, data) {
+      fetch('/descargar/excel/' + tipo, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      }).then(r => r.blob()).then(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = tipo + '.xlsx';
+        a.click();
+      });
+    }
+
+    function generarPDF() {
+      const obs = prompt('Ingresa observaciones para el informe (opcional):');
+      document.getElementById('pdf-obs').value = obs || '';
+      const eq = localStorage.getItem('web_equivalencias') || '[]';
+      document.getElementById('pdf-eq').value = eq;
+      document.getElementById('pdf-form').submit();
+    }
+
+    function toggleEqSection() {
+      const section = document.getElementById('eq-section');
+      const icon = document.getElementById('eq-toggle-icon');
+      const isOpen = section.style.display !== 'none';
+      section.style.display = isOpen ? 'none' : 'block';
+      icon.textContent = isOpen ? '▶' : '▼';
+    }
+
+    function agregarEqResultados() {
+      const rec = document.getElementById('result-eq-rec').value.trim();
+      const ing = document.getElementById('result-eq-ing').value.trim();
+      const msg = document.getElementById('result-eq-msg');
+      if (!rec || !ing) {
+        msg.innerHTML = '<span style="color:#e74c3c">Completa ambos campos</span>';
+        return;
+      }
+      let equivalencias = JSON.parse(localStorage.getItem('web_equivalencias') || '[]');
+      for (const eq of equivalencias) {
+        if (eq.rec.toUpperCase() === rec.toUpperCase()) {
+          msg.innerHTML = '<span style="color:#e67e22">Ya existe una equivalencia con ese nombre de recepción</span>';
+          return;
+        }
+      }
+      equivalencias.push({ rec, ing });
+      localStorage.setItem('web_equivalencias', JSON.stringify(equivalencias));
+      document.getElementById('result-eq-rec').value = '';
+      document.getElementById('result-eq-ing').value = '';
+      msg.innerHTML = '<span style="color:#27ae60">✅ Equivalencia agregada. Presiona "Re-comparar" para ver el efecto.</span>';
+    }
+
+    function vincularSugerencia(rec, ing, btn) {
+      let equivalencias = JSON.parse(localStorage.getItem('web_equivalencias') || '[]');
+      for (const eq of equivalencias) {
+        if (eq.rec.toUpperCase() === rec.toUpperCase()) {
+          btn.textContent = '✓';
+          btn.style.background = '#27ae60';
+          alert('Ya existe esta equivalencia en tu diccionario');
+          return;
+        }
+      }
+      equivalencias.push({ rec, ing });
+      localStorage.setItem('web_equivalencias', JSON.stringify(equivalencias));
+      btn.textContent = '✓';
+      btn.style.background = '#27ae60';
+      document.getElementById('eq-card').style.borderColor = '#27ae60';
+      const msg = document.getElementById('result-eq-msg');
+      if (msg) msg.innerHTML = '<span style="color:#27ae60">✅ Equivalencia agregada. Presiona "Re-comparar" para ver el efecto.</span>';
+    }
+
+    function recomparar() {
+      const btn = document.querySelector('.btn-recomp');
+      btn.textContent = '⏳ Re-comparando...';
+      btn.disabled = true;
+      const eq = localStorage.getItem('web_equivalencias') || '[]';
+      document.getElementById('recomp-eq').value = eq;
+      document.getElementById('recomp-form').submit();
+    }
+
+    // Click en nombres de medicamentos para llenar formulario de equivalencias
+    document.addEventListener('click', function(e) {
+      const cell = e.target.closest('.eq-rec, .eq-ing');
+      if (!cell) return;
+
+      const texto = cell.textContent.trim();
+      if (!texto) return;
+
+      const campo = cell.classList.contains('eq-rec') ? 'result-eq-rec' : 'result-eq-ing';
+      const otroCampo = cell.classList.contains('eq-rec') ? 'result-eq-ing' : 'result-eq-rec';
+
+      document.getElementById(campo).value = texto;
+      document.getElementById(campo).focus();
+
+      // Mostrar la sección de equivalencias si está oculta
+      const section = document.getElementById('eq-section');
+      if (section.style.display === 'none' || !section.style.display) {
+        section.style.display = 'block';
+        document.getElementById('eq-toggle-icon').textContent = '▼';
+      }
+
+      // Feedback visual
+      cell.style.outline = '2px solid #3498db';
+      cell.style.outlineOffset = '-2px';
+      cell.style.borderRadius = '4px';
+      setTimeout(function() {
+        cell.style.outline = 'none';
+      }, 600);
+
+      // Si ya hay texto en el otro campo, resaltar que ya puede agregar
+      const otroValor = document.getElementById(otroCampo).value.trim();
+      if (otroValor) {
+        document.getElementById('result-eq-msg').innerHTML =
+          '<span style="color:#27ae60;font-weight:600;">✅ Listo. Presiona "Agregar" para guardar la equivalencia.</span>';
+      }
+    });
+  </script>
+</body>
+</html>

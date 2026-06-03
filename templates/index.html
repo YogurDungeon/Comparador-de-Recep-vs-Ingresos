@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comparador de Medicamentos</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="header">
+    <h1>🏥 Comparador de Medicamentos</h1>
+    <p class="subtitle">Recepción vs Ingresos</p>
+  </header>
+
+  <div id="spinner" class="spinner">
+    <div class="spinner-icon"></div>
+    <p>Comparando archivos...</p>
+  </div>
+
+  <form id="form-comparar" action="/comparar" method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="equivalencias_usuario" id="equivalencias-input">
+
+    <div class="card">
+      <label class="label-range">Umbral de similitud: <span id="threshold-val">70</span>%</label>
+      <input type="range" name="threshold" id="threshold" min="60" max="100" value="70"
+             oninput="actualizarThreshold(this)">
+    </div>
+
+    <div class="card">
+      <div class="file-group">
+        <label class="file-label">📁 RECEPCIÓN</label>
+        <input type="file" name="recepcion" accept=".xlsx,.xls" required
+               onchange="this.nextElementSibling.textContent=this.files[0]?.name||''">
+        <span class="file-name"></span>
+      </div>
+      <div class="file-group">
+        <label class="file-label">📁 INGRESOS</label>
+        <input type="file" name="ingresos" accept=".xlsx,.xls" required
+               onchange="this.nextElementSibling.textContent=this.files[0]?.name||''">
+        <span class="file-name"></span>
+      </div>
+    </div>
+
+    <button type="submit" class="btn-primary" onclick="document.getElementById('spinner').classList.add('active')">
+      ▶ COMPARAR ARCHIVOS
+    </button>
+  </form>
+
+  <div class="card">
+    <h2 class="section-title">📖 Gestionar Equivalencias</h2>
+    <p class="help-text">Agrega equivalencias para mejorar el matching. Se guardan automáticamente en tu navegador.</p>
+
+    <div class="form-eq">
+      <input type="text" id="eq-recepcion" placeholder="Nombre en Recepción" class="input-eq">
+      <input type="text" id="eq-ingresos" placeholder="Nombre en Ingresos (técnico)" class="input-eq">
+      <button type="button" onclick="agregarEquivalencia()" class="btn-add">➕ Agregar</button>
+    </div>
+
+    <div id="eq-count" class="eq-count"></div>
+    <ul id="lista-equivalencias"></ul>
+
+    <div class="eq-actions">
+      <button type="button" onclick="descargarDiccionario()" class="btn-secondary">📥 Descargar diccionario</button>
+      <button type="button" onclick="document.getElementById('cargar-dic').click()" class="btn-secondary">📂 Cargar diccionario</button>
+      <input type="file" id="cargar-dic" accept=".xlsx,.xls" style="display:none" onchange="cargarDiccionario(this)">
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Diccionario base: <b>diccionario_equivalencias.xlsx</b></p>
+  </footer>
+
+  <script>
+    const DICCIONARIO_BASE = {{ diccionario_base | safe }};
+    let equivalencias = JSON.parse(localStorage.getItem('web_equivalencias') || '[]');
+
+    function renderizar() {
+      const lista = document.getElementById('lista-equivalencias');
+      lista.innerHTML = '';
+      const todas = [...DICCIONARIO_BASE, ...equivalencias];
+      document.getElementById('eq-count').textContent = `${todas.length} equivalencias activas (${equivalencias.length} añadidas)`;
+      [...equivalencias].reverse().forEach((eq, i) => {
+        const li = document.createElement('li');
+        const idx = equivalencias.length - 1 - i;
+        li.innerHTML = `<span><b>${escapeHtml(eq.rec)}</b> → ${escapeHtml(eq.ing)}</span>
+                        <button class="btn-del" onclick="eliminar(${idx})" title="Eliminar">✕</button>`;
+        lista.appendChild(li);
+      });
+      document.getElementById('equivalencias-input').value = JSON.stringify(equivalencias);
+    }
+
+    function agregarEquivalencia() {
+      const rec = document.getElementById('eq-recepcion').value.trim();
+      const ing = document.getElementById('eq-ingresos').value.trim();
+      if (!rec || !ing) { alert('Completa ambos campos'); return; }
+      for (const eq of equivalencias) {
+        if (eq.rec.toUpperCase() === rec.toUpperCase()) {
+          alert('Ya existe una equivalencia con ese nombre de recepción');
+          return;
+        }
+      }
+      equivalencias.push({ rec, ing });
+      localStorage.setItem('web_equivalencias', JSON.stringify(equivalencias));
+      document.getElementById('eq-recepcion').value = '';
+      document.getElementById('eq-ingresos').value = '';
+      renderizar();
+    }
+
+    function eliminar(index) {
+      equivalencias.splice(index, 1);
+      localStorage.setItem('web_equivalencias', JSON.stringify(equivalencias));
+      renderizar();
+    }
+
+    function descargarDiccionario() {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/descargar/diccionario';
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'equivalencias';
+      input.value = JSON.stringify(equivalencias);
+      form.appendChild(input);
+      document.body.appendChild(form);
+      form.submit();
+      form.remove();
+    }
+
+    function cargarDiccionario(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, {type: 'array'});
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(sheet);
+          let count = 0;
+          for (const row of rows) {
+            if (row.Medicamento_Recepcion && row.Nombre_Ingresos) {
+              const rec = String(row.Medicamento_Recepcion).trim();
+              const ing = String(row.Nombre_Ingresos).trim();
+              if (rec && ing) {
+                const exists = equivalencias.some(e => e.rec.toUpperCase() === rec.toUpperCase());
+                if (!exists) {
+                  equivalencias.push({ rec, ing });
+                  count++;
+                }
+              }
+            }
+          }
+          if (count > 0) {
+            localStorage.setItem('web_equivalencias', JSON.stringify(equivalencias));
+            renderizar();
+            alert(`Se cargaron ${count} equivalencias nuevas`);
+          } else {
+            alert('No se encontraron equivalencias nuevas para agregar');
+          }
+        } catch(e) {
+          alert('Error al leer el archivo. Asegúrate de que sea un Excel válido con columnas "Medicamento_Recepcion" y "Nombre_Ingresos"');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      input.value = '';
+    }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+
+    function actualizarThreshold(el) {
+      const val = el.value;
+      document.getElementById('threshold-val').textContent = val;
+      el.style.setProperty('--val', val + '%');
+      el.style.background =
+        'linear-gradient(to right, #3498db 0%, #3498db ' + val + '%, #ddd ' + val + '%, #ddd 100%)';
+    }
+
+    document.getElementById('threshold').style.setProperty('--val', '70%');
+    renderizar();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</body>
+</html>
