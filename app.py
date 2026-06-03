@@ -8,7 +8,9 @@ from generador_pdf import generar_informe_pdf
 import pandas as pd
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 RUTA_DICCIONARIO_BASE = os.path.join(os.path.dirname(__file__), 'diccionario_equivalencias.xlsx')
 
@@ -195,4 +197,6 @@ def descargar_diccionario():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_DEBUG', '0') == '1'
+    app.run(debug=debug, host='0.0.0.0', port=port)

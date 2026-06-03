@@ -23,4 +23,15 @@ Uso :
 python app.py
 ```
 
+Despliegue en Render:
+
+1. Sube el proyecto a GitHub.
+2. En https://render.com, crea un nuevo servicio web.
+3. Conecta tu cuenta de GitHub y selecciona el repositorio `comparador-web`.
+4. Usa estos ajustes:
+   - Branch: `master` (o el branch que estés usando)
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `gunicorn app:app`
+5. Si deseas, añade una variable de entorno `SECRET_KEY` en Render para producción.
+
 Licencia: Agrega tu licencia preferida.
